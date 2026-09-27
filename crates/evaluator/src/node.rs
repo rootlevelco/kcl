@@ -10,7 +10,7 @@ use kcl_ast::ast::{self, CallExpr, ConfigEntry, Module, NodeRef};
 use kcl_ast::walker::{MutSelfWalker, TypedResultWalker};
 use kcl_runtime::{
     ConfigEntryOperationKind, DecoratorValue, PKG_PATH_PREFIX, RuntimeErrorType, UnionOptions,
-    ValueRef, schema_assert, schema_runtime_type,
+    Value, ValueRef, schema_assert, schema_runtime_type,
 };
 use kcl_sema::{builtin, pkgpath_without_prefix, plugin};
 use scopeguard::defer;
@@ -163,6 +163,7 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
                 // value without leaving it in the global scope) and skip the
                 // redundant right-hand side evaluation.
                 self.add_or_update_global_variable(name, cached.clone(), false);
+                self.name_instances(assign_stmt, &cached);
                 return Ok(cached);
             }
         }
@@ -177,6 +178,7 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
         if let Some(ty) = &assign_stmt.ty {
             value = type_pack_and_check(self, &value, vec![&ty.node.to_string()], false);
         }
+        self.name_instances(assign_stmt, &value);
         let self_ref = {
             let targets: Vec<&str> = assign_stmt
                 .targets
@@ -557,7 +559,22 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
             .get_schema_eval_context()
             .map(|c| !c.borrow().is_sub_schema && c.borrow().value.attr_map_get(name).is_some())
             .unwrap_or(false);
-        for decorator in &schema_attr.decorators {
+        let computed = schema_attr.decorators.iter().find(|d| is_computed(&d.node));
+        if let Some(d) = computed {
+            let settable = is_settable(&d.node);
+            let set = self
+                .get_schema_or_rule_config_info()
+                .is_some_and(|(_, config, _)| config.dict_get_entry(name).is_some());
+            // A settable computed attribute that the config sets is an input.
+            if !(settable && set) {
+                return self.walk_computed_attr(schema_attr, name);
+            }
+        }
+        for decorator in schema_attr
+            .decorators
+            .iter()
+            .filter(|d| !is_computed(&d.node))
+        {
             self.walk_decorator_with_name(&decorator.node, Some(name), false)
                 .expect(kcl_error::INTERNAL_ERROR_MSG);
         }
@@ -670,6 +687,15 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
 
     fn walk_unary_expr(&self, unary_expr: &'ctx ast::UnaryExpr) -> Self::Result {
         let value = self.walk_expr(&unary_expr.operand)?;
+        if value.is_deferred() {
+            return match unary_expr.op {
+                ast::UnaryOp::Not => Ok(ValueRef::deferred_op("not", vec![value])),
+                _ => panic!(
+                    "{} is computed at runtime and isn't known yet; only `not` applies to it",
+                    value.deferred_repr()
+                ),
+            };
+        }
         Ok(match unary_expr.op {
             ast::UnaryOp::UAdd => value.unary_plus(),
             ast::UnaryOp::USub => value.unary_minus(),
@@ -716,6 +742,12 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
             // Short circuit operation of logical operators
             let jump_if_false = matches!(binary_expr.op, ast::BinOp::And);
             let left_value = self.walk_expr(&binary_expr.left)?;
+            if left_value.is_deferred() {
+                // Not known yet: the whole expression becomes a condition.
+                let right_value = self.walk_expr(&binary_expr.right)?;
+                let op = if jump_if_false { "and" } else { "or" };
+                return Ok(ValueRef::deferred_op(op, vec![left_value, right_value]));
+            }
             let is_truth = self.value_is_truthy(&left_value);
             if jump_if_false {
                 // Jump if false on logic and
@@ -737,7 +769,7 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
     fn walk_selector_expr(&self, selector_expr: &'ctx ast::SelectorExpr) -> Self::Result {
         let value = self.walk_expr(&selector_expr.value)?;
         let key = selector_expr.attr.node.names[0].node.as_str();
-        let mut value = if selector_expr.has_question {
+        let mut value = if selector_expr.has_question && !value.is_deferred() {
             if value.is_truthy() {
                 value.load_attr(key)
             } else {
@@ -788,6 +820,14 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
         if let Some(index) = &subscript.index {
             // index
             let index = self.walk_expr(index)?;
+            if value.is_deferred() {
+                if index.is_deferred() {
+                    panic!(
+                        "an index computed at runtime can't select part of another computed value"
+                    );
+                }
+                return Ok(value.deferred_load(&index.to_string()));
+            }
             value = if subscript.has_question {
                 value.bin_subscr_option(&index)
             } else {
@@ -1205,13 +1245,27 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
                     .expect(kcl_error::INTERNAL_ERROR_MSG),
                 _ => panic!("{}", kcl_error::INVALID_JOINED_STR_MSG),
             };
-            result_value = self.add(result_value, value)
+            result_value = if value.is_deferred() || result_value.is_deferred() {
+                ValueRef::deferred_interpolate(&result_value, &value)
+            } else {
+                self.add(result_value, value)
+            }
         }
         Ok(result_value)
     }
 
     fn walk_formatted_value(&self, formatted_value: &'ctx ast::FormattedValue) -> Self::Result {
         let formatted_expr_value = self.walk_expr(&formatted_value.value)?;
+        if formatted_expr_value.is_deferred() {
+            if formatted_value.format_spec.is_some() {
+                panic!(
+                    "{} is computed at runtime and can't be formatted as JSON or YAML",
+                    formatted_expr_value.deferred_repr()
+                );
+            }
+            // Joined into a deferred template by `add`.
+            return Ok(formatted_expr_value);
+        }
         let value = if let Some(spec) = &formatted_value.format_spec {
             match spec.to_lowercase().as_str() {
                 "#json" => formatted_expr_value.to_json_string(),
@@ -1886,5 +1940,102 @@ impl<'ctx> Evaluator<'ctx> {
             }
         }
         Ok(config_value)
+    }
+}
+
+fn is_computed(decorator: &CallExpr) -> bool {
+    matches!(&decorator.func.node, ast::Expr::Identifier(id)
+        if id.names.len() == 1 && id.names[0].node == kcl_runtime::COMPUTED_DECORATOR)
+}
+
+/// `@computed(settable=True)`: the config may set the attribute; only when it
+/// doesn't is the attribute computed.
+fn is_settable(decorator: &CallExpr) -> bool {
+    decorator.keywords.iter().any(|k| {
+        k.node
+            .arg
+            .node
+            .names
+            .first()
+            .is_some_and(|n| n.node == "settable")
+            && matches!(
+                k.node.value.as_ref().map(|v| &v.node),
+                Some(ast::Expr::NameConstantLit(c)) if matches!(c.value, ast::NameConstant::True)
+            )
+    })
+}
+
+impl<'ctx> Evaluator<'ctx> {
+    /// A `@computed` attribute: a deferred reference to itself on this instance.
+    fn walk_computed_attr(
+        &self,
+        schema_attr: &'ctx ast::SchemaAttr,
+        name: &str,
+    ) -> crate::EvalResult {
+        let (mut schema_value, config_value, _) = self
+            .get_schema_or_rule_config_info()
+            .expect(kcl_error::INTERNAL_ERROR_MSG);
+        if config_value.dict_get_entry(name).is_some() {
+            panic!("{name} is computed at runtime and can't be set");
+        }
+        let ty = schema_attr.ty.node.to_string();
+        schema_value.update_attr_map(name, &ty);
+        let oid = self.instance_oid(&schema_value);
+        let schema = self
+            .get_schema_eval_context()
+            .map(|c| c.borrow().node.name.node.to_string())
+            .unwrap_or_default();
+        let value = ValueRef::deferred(
+            kcl_runtime::DeferredExpr::Ref {
+                oid,
+                schema,
+                attr: name.to_string(),
+                path: Vec::new(),
+            },
+            &ty,
+        );
+        self.runtime_ctx.borrow_mut().deferred.used = true;
+        self.schema_dict_merge(
+            &mut schema_value,
+            name,
+            &value,
+            &ast::ConfigEntryOperation::Override,
+            None,
+        );
+        if let Some(schema_ctx) = self.get_schema_eval_context() {
+            schema_ctx.borrow().set_value(self, name);
+        }
+        self.pop_target_var();
+        Ok(schema_value)
+    }
+
+    /// The instance id of a schema value being built, assigned on first use.
+    pub(crate) fn instance_oid(&self, value: &ValueRef) -> u64 {
+        let mut v = value.rc.borrow_mut();
+        let dict = match &mut *v {
+            Value::dict_value(d) => d.as_mut(),
+            Value::schema_value(s) => s.config.as_mut(),
+            _ => return 0,
+        };
+        if dict.oid.0 == 0 {
+            dict.oid = kcl_runtime::InstanceId(self.runtime_ctx.borrow_mut().deferred.new_oid());
+        }
+        dict.oid.0
+    }
+
+    /// Names the instances a top-level variable of the main package holds.
+    fn name_instances(&self, assign_stmt: &'ctx ast::AssignStmt, value: &ValueRef) {
+        if self.scope_level() != GLOBAL_LEVEL
+            || self.current_pkgpath() != kcl_runtime::MAIN_PKG_PATH
+        {
+            return;
+        }
+        for target in &assign_stmt.targets {
+            if target.node.paths.is_empty() {
+                self.runtime_ctx
+                    .borrow_mut()
+                    .deferred_name_instances(value, &target.node.name.node);
+            }
+        }
     }
 }

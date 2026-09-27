@@ -95,7 +95,13 @@ kcl_value_ref_t* kcl_builtin_hex(kcl_context_t* ctx, kcl_value_ref_t* args, kcl_
 
 kcl_value_ref_t* kcl_builtin_int(kcl_context_t* ctx, kcl_value_ref_t* args, kcl_value_ref_t* kwargs);
 
+kcl_value_ref_t* kcl_builtin_deferredwrap(kcl_context_t* ctx, kcl_value_ref_t* args, kcl_value_ref_t* kwargs);
+
+kcl_value_ref_t* kcl_builtin_isknown(kcl_context_t* ctx, kcl_value_ref_t* args, kcl_value_ref_t* kwargs);
+
 kcl_value_ref_t* kcl_builtin_isnullish(kcl_context_t* ctx, kcl_value_ref_t* args, kcl_value_ref_t* kwargs);
+
+kcl_value_ref_t* kcl_builtin_knownvalue(kcl_context_t* ctx, kcl_value_ref_t* args, kcl_value_ref_t* kwargs);
 
 kcl_value_ref_t* kcl_builtin_isunique(kcl_context_t* ctx, kcl_value_ref_t* args, kcl_value_ref_t* kwargs);
 

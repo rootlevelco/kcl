@@ -17,6 +17,7 @@ impl ValueRef {
             Value::schema_value(_) => Kind::Schema,
             Value::func_value(_) => Kind::Func,
             Value::unit_value(..) => Kind::Unit,
+            Value::deferred_value(_) => Kind::Any,
         }
     }
 }

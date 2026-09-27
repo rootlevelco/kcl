@@ -65,7 +65,9 @@ pub fn type_pack_and_check(
     expected_types: Vec<&str>,
     strict: bool,
 ) -> ValueRef {
-    if value.is_none_or_undefined() || expected_types.is_empty() {
+    // A deferred value has its declared type; the static checker already
+    // compared that with the expected one.
+    if value.is_none_or_undefined() || expected_types.is_empty() || value.is_deferred() {
         return value.clone();
     }
     let is_schema = value.is_schema();

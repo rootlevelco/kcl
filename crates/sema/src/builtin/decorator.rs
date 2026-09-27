@@ -51,6 +51,22 @@ register_decorator! {
         false,
         None,
     )
+    computed => Type::function(
+        None,
+        Arc::new(Type::ANY),
+        &[
+            Parameter {
+                name: "settable".to_string(),
+                ty: Arc::new(Type::BOOL),
+                has_default: true,
+                default_value: None,
+                range: dummy_range(),
+            },
+        ],
+        r#"Marks a schema attribute whose value is known only after evaluation. The attribute holds a deferred reference to itself on each instance, typed as declared. It can't be set, unless `settable=True`: then a value from the config is kept, and only an unset attribute is computed."#,
+        false,
+        None,
+    )
     info => Type::function(
         None,
         Arc::new(Type::ANY),

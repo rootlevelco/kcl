@@ -1,6 +1,6 @@
 //! Copyright The KCL Authors. All rights reserved.
 
-use crate::{new_mut_ptr, val_plan::PlanOptions};
+use crate::{DeferredState, DeferredValue, InstanceId, new_mut_ptr, val_plan::PlanOptions};
 use generational_arena::Index;
 use kcl_primitives::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
@@ -169,6 +169,9 @@ impl Hash for ValueRef {
             Value::func_value(v) => {
                 v.fn_ptr.hash(state);
             }
+            Value::deferred_value(v) => {
+                v.ty.hash(state);
+            }
         }
     }
 }
@@ -214,6 +217,8 @@ pub enum Value {
     schema_value(Box<SchemaValue>),
     func_value(Box<FuncValue>),
     unit_value(f64, i64, String), // (Real value, raw value, unit string)
+    /// A value known only after evaluation. See `val_deferred`.
+    deferred_value(Box<DeferredValue>),
 }
 
 #[derive(PartialEq, Eq, Clone, Default, Debug)]
@@ -233,6 +238,8 @@ pub struct DictValue {
     /// Stored schema arguments (args, kwargs) for instances() to use
     /// This is None for non-schema dicts, Some(args, kwargs) for schema instances
     pub schema_args: Option<(ValueRef, ValueRef)>,
+    /// The schema instance this dict belongs to, 0 for none. Survives copies.
+    pub oid: InstanceId,
 }
 
 #[derive(PartialEq, Clone, Default, Debug)]
@@ -374,6 +381,8 @@ pub struct Context {
     pub panic_info: PanicInfo,
     /// Planning options
     pub plan_opts: PlanOptions,
+    /// Deferred values: instance names and known values.
+    pub deferred: DeferredState,
     /// Builtin plugin functions, the key of the map is the form <module_name>.<module_func> e.g., `hello.say_hello`
     pub plugin_functions: IndexMap<String, PluginFunction>,
 }

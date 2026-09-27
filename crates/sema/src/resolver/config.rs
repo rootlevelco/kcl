@@ -1023,7 +1023,9 @@ impl<'ctx> Resolver<'_> {
             }
         }
         for (attr_name, attr) in &schema_ty.attrs {
-            if !attr.is_optional && !attr.has_default && !provided.contains(attr_name) {
+            // `@computed` attributes are filled in by the evaluator.
+            let computed = attr.decorators.iter().any(|d| d.name == "computed");
+            if !attr.is_optional && !attr.has_default && !computed && !provided.contains(attr_name) {
                 let msg = format!(
                     "attribute '{}' of {} is required and can't be None or Undefined",
                     attr_name, schema_ty.name

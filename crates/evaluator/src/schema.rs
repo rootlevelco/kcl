@@ -584,6 +584,11 @@ pub(crate) fn schema_body(
     kwargs: &ValueRef,
 ) -> ValueRef {
     init_lazy_scope(s, &mut ctx.borrow_mut());
+    // Every instance gets an id, so references and copies can be matched up.
+    {
+        let value = ctx.borrow().value.clone();
+        s.instance_oid(&value);
+    }
     // Pre-populate `attr_map` with this schema's attribute types *before*
     // calling the parent's schema body. The parent schema's body walks the
     // shared dict via `walk_schema_attr` and calls `value_union` for any

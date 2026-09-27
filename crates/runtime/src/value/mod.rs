@@ -65,6 +65,9 @@ pub mod val_str;
 
 pub mod val_attr;
 
+pub mod val_deferred;
+pub use val_deferred::*;
+
 pub mod val_type;
 pub use val_type::*;
 

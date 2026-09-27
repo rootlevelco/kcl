@@ -93,6 +93,18 @@ pub struct ExecProgramArgs {
     /// field) compatible with the current deserializer.
     #[serde(default)]
     pub coverage: bool,
+    /// Deferred values: after a top-level variable of the main package is
+    /// assigned, schema instances in it that have this attribute and no name
+    /// are named after the variable. Empty turns naming off.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub deferred_kind_attr: String,
+    /// The attribute that holds an instance's name.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub deferred_name_attr: String,
+    /// Known values of deferred attributes: a JSON object keyed by
+    /// `<kind>/<name>.<attr>[.<key>...]`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub deferred_known: String,
 }
 
 #[inline]
@@ -478,6 +490,11 @@ pub(crate) fn args_to_ctx(program: &ast::Program, args: &ExecProgramArgs) -> Con
     ctx.plan_opts.query_paths = args.path_selector.clone();
     ctx.plan_opts.format = args.format.clone();
     ctx.plan_opts.emit_attribute_metadata = args.emit_attribute_metadata;
+    ctx.deferred.opts = kcl_runtime::DeferredOptions {
+        kind_attr: args.deferred_kind_attr.clone(),
+        name_attr: args.deferred_name_attr.clone(),
+        known: args.deferred_known.clone(),
+    };
     for arg in &args.args {
         ctx.builtin_option_init(&arg.name, &arg.value);
     }

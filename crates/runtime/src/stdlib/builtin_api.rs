@@ -643,6 +643,73 @@ pub unsafe extern "C-unwind" fn kcl_builtin_range(
     }
 }
 
+/// Return `value` as a deferred value written as `{marker: value}`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn kcl_builtin_deferredwrap(
+    ctx: *mut kcl_context_t,
+    args: *const kcl_value_ref_t,
+    kwargs: *const kcl_value_ref_t,
+) -> *mut kcl_value_ref_t {
+    let ctx = unsafe { mut_ptr_as_ref(ctx) };
+    let args = unsafe { ptr_as_ref(args) };
+    let kwargs = unsafe { ptr_as_ref(kwargs) };
+
+    let marker = get_call_arg(args, kwargs, 0, Some("marker"))
+        .expect("deferredwrap() takes a marker and a value");
+    let value = get_call_arg(args, kwargs, 1, Some("value"))
+        .expect("deferredwrap() takes a marker and a value");
+    let ty = value.type_str();
+    ctx.deferred.used = true;
+    ValueRef::deferred(
+        DeferredExpr::Wrap {
+            marker: marker.as_str(),
+            value,
+        },
+        &ty,
+    )
+    .into_raw(ctx)
+}
+
+/// Return `True` if the value isn't computed at runtime, or its value is known.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn kcl_builtin_isknown(
+    ctx: *mut kcl_context_t,
+    args: *const kcl_value_ref_t,
+    kwargs: *const kcl_value_ref_t,
+) -> *mut kcl_value_ref_t {
+    let ctx = unsafe { mut_ptr_as_ref(ctx) };
+    let args = unsafe { ptr_as_ref(args) };
+    let kwargs = unsafe { ptr_as_ref(kwargs) };
+
+    if let Some(arg0) = get_call_arg(args, kwargs, 0, Some("value")) {
+        return ValueRef::bool(ctx.deferred_is_known(&arg0)).into_raw(ctx);
+    }
+    panic!("isknown() takes exactly one argument (0 given)");
+}
+
+/// Return the known value of a value computed at runtime.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn kcl_builtin_knownvalue(
+    ctx: *mut kcl_context_t,
+    args: *const kcl_value_ref_t,
+    kwargs: *const kcl_value_ref_t,
+) -> *mut kcl_value_ref_t {
+    let ctx = unsafe { mut_ptr_as_ref(ctx) };
+    let args = unsafe { ptr_as_ref(args) };
+    let kwargs = unsafe { ptr_as_ref(kwargs) };
+
+    if let Some(arg0) = get_call_arg(args, kwargs, 0, Some("value")) {
+        if !arg0.is_deferred() {
+            return arg0.into_raw(ctx);
+        }
+        return match ctx.deferred_resolve(&arg0) {
+            Some(v) => v.into_raw(ctx),
+            None => panic!("{} isn't known yet", arg0.deferred_repr()),
+        };
+    }
+    panic!("knownvalue() takes exactly one argument (0 given)");
+}
+
 /// Return `True` if the input value is `None` or `Undefined`, and `False` otherwise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn kcl_builtin_isnullish(

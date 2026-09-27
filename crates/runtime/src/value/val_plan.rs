@@ -308,11 +308,18 @@ impl ValueRef {
             sort_keys: ctx.plan_opts.sort_keys,
             ..Default::default()
         };
+        // Deferred values become markers the orchestrator reads.
+        let this = if ctx.deferred.used {
+            self.lower_deferred(&ctx.deferred)
+        } else {
+            self.clone()
+        };
+        let this = &this;
         // Filter values with query paths
         let value = if ctx.plan_opts.query_paths.is_empty() {
-            self.clone()
+            this.clone()
         } else {
-            self.filter_by_path(&ctx.plan_opts.query_paths)
+            this.filter_by_path(&ctx.plan_opts.query_paths)
                 .unwrap_or_else(|e| panic!("{e}"))
         };
         // Helper closures so each branch below can independently choose

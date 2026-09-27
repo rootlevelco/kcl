@@ -7,6 +7,9 @@ impl ValueRef {
     /// member function or a builtin value.
     pub fn load_attr(&self, key: &str) -> Self {
         let p: &ValueRef = self;
+        if p.is_deferred() {
+            return p.deferred_load(key);
+        }
         // load_attr including str/dict/schema.
         if p.is_dict() {
             match p.dict_get_value(key) {

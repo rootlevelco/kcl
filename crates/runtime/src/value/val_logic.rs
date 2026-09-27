@@ -17,6 +17,10 @@ impl ValueRef {
             Value::schema_value(v) => !v.config.values.is_empty(),
             Value::func_value(_) => true,
             Value::unit_value(v, _, _) => *v != 0.0,
+            Value::deferred_value(_) => panic!(
+                "{} is computed at runtime and isn't known yet; put conditions on it in `when`",
+                self.deferred_repr()
+            ),
         }
     }
 

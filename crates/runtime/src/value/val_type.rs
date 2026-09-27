@@ -60,6 +60,7 @@ impl ValueRef {
             Value::list_value(..) => String::from(KCL_TYPE_LIST),
             Value::dict_value(..) => String::from(KCL_TYPE_DICT),
             Value::schema_value(v) => v.name.clone(),
+            Value::deferred_value(v) => v.ty.clone(),
             Value::func_value(func) => {
                 if func.runtime_type.is_empty() {
                     String::from(KCL_TYPE_FUNCTION)
@@ -165,7 +166,7 @@ pub fn type_pack_and_check(
     expected_types: Vec<&str>,
     strict: bool,
 ) -> ValueRef {
-    if value.is_none_or_undefined() || expected_types.is_empty() {
+    if value.is_none_or_undefined() || expected_types.is_empty() || value.is_deferred() {
         return value.clone();
     }
     let is_schema = value.is_schema();
@@ -392,7 +393,7 @@ pub fn check_type(value: &ValueRef, pkgpath: &str, tpe: &str, strict: bool) -> b
     if tpe.is_empty() || tpe == KCL_TYPE_ANY {
         return true;
     }
-    if value.is_none_or_undefined() {
+    if value.is_none_or_undefined() || value.is_deferred() {
         return true;
     }
     if is_type_union(tpe) {

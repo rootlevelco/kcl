@@ -47,6 +47,9 @@ impl ValueRef {
             Value::str_value(v) => ValueRef {
                 rc: Rc::new(RefCell::new(Value::str_value(v.to_string()))),
             },
+            Value::deferred_value(v) => ValueRef {
+                rc: Rc::new(RefCell::new(Value::deferred_value(v.clone()))),
+            },
             Value::list_value(v) => ValueRef {
                 rc: Rc::new(RefCell::new(Value::list_value(Box::new(ListValue {
                     values: v.values.iter().map(|x| x.deep_copy()).collect(),
@@ -60,6 +63,9 @@ impl ValueRef {
                     dict.dict_update_entry(key.as_str(), &val.deep_copy(), &op.clone(), index);
                 }
                 dict.set_potential_schema_type(&v.potential_schema.clone().unwrap_or_default());
+                if let Value::dict_value(d) = &mut *dict.rc.borrow_mut() {
+                    d.oid = v.oid;
+                }
                 dict
             }
             Value::schema_value(v) => {
@@ -79,11 +85,13 @@ impl ValueRef {
                         dict.update_attr_map(key, type_str);
                     }
                 }
+                let mut config = dict.as_dict_ref().clone();
+                config.oid = v.config.oid;
                 return ValueRef {
                     rc: Rc::new(RefCell::new(Value::schema_value(Box::new(SchemaValue {
                         name: v.name.clone(),
                         pkgpath: v.pkgpath.clone(),
-                        config: Box::new(dict.as_dict_ref().clone()),
+                        config: Box::new(config),
                         config_keys: v.config_keys.clone(),
                         config_meta: v.config_meta.clone(),
                         optional_mapping: v.optional_mapping.clone(),

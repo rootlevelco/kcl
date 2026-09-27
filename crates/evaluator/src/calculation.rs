@@ -11,56 +11,69 @@ impl<'ctx> Evaluator<'ctx> {
     /// lhs + rhs
     #[inline]
     pub(crate) fn add(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_concat(&lhs, &rhs);
+        }
         lhs.bin_add(&mut self.runtime_ctx.borrow_mut(), &rhs)
     }
     /// lhs - rhs
     #[inline]
     pub(crate) fn sub(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("-", &lhs, &rhs);
         lhs.bin_sub(&mut self.runtime_ctx.borrow_mut(), &rhs)
     }
     /// lhs * rhs
     #[inline]
     pub(crate) fn mul(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("*", &lhs, &rhs);
         lhs.bin_mul(&mut self.runtime_ctx.borrow_mut(), &rhs)
     }
     /// lhs / rhs
     #[inline]
     pub(crate) fn div(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("/", &lhs, &rhs);
         lhs.bin_div(&rhs)
     }
     /// lhs // rhs
     #[inline]
     pub(crate) fn floor_div(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("//", &lhs, &rhs);
         lhs.bin_floor_div(&rhs)
     }
     /// lhs % rhs
     #[inline]
     pub(crate) fn r#mod(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("%", &lhs, &rhs);
         lhs.bin_mod(&rhs)
     }
     /// lhs ** rhs
     #[inline]
     pub(crate) fn pow(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("**", &lhs, &rhs);
         lhs.bin_pow(&mut self.runtime_ctx.borrow_mut(), &rhs)
     }
     /// lhs << rhs
     #[inline]
     pub(crate) fn bit_lshift(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("<<", &lhs, &rhs);
         lhs.bin_bit_lshift(&mut self.runtime_ctx.borrow_mut(), &rhs)
     }
     /// lhs >> rhs
     #[inline]
     pub(crate) fn bit_rshift(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred(">>", &lhs, &rhs);
         lhs.bin_bit_rshift(&mut self.runtime_ctx.borrow_mut(), &rhs)
     }
     /// lhs & rhs
     #[inline]
     pub(crate) fn bit_and(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("&", &lhs, &rhs);
         lhs.bin_bit_and(&rhs)
     }
     /// lhs | rhs
     #[inline]
     pub(crate) fn bit_or(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("|", &lhs, &rhs);
         if let (Value::int_value(a), Value::int_value(b)) = (&*lhs.rc.borrow(), &*rhs.rc.borrow()) {
             return ValueRef::int(*a | *b);
         };
@@ -75,46 +88,71 @@ impl<'ctx> Evaluator<'ctx> {
     /// lhs ^ rhs
     #[inline]
     pub(crate) fn bit_xor(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("^", &lhs, &rhs);
         lhs.bin_bit_xor(&rhs)
     }
     /// lhs and rhs
     #[inline]
     pub(crate) fn logic_and(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_op("and", vec![lhs, rhs]);
+        }
         lhs.logic_and(&rhs).into()
     }
     /// lhs or rhs
     #[inline]
     pub(crate) fn logic_or(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_op("or", vec![lhs, rhs]);
+        }
         lhs.logic_or(&rhs).into()
     }
     /// lhs == rhs
     #[inline]
     pub(crate) fn cmp_equal_to(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_op("eq", vec![lhs, rhs]);
+        }
         lhs.cmp_equal(&rhs).into()
     }
     /// lhs != rhs
     #[inline]
     pub(crate) fn cmp_not_equal_to(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_op("ne", vec![lhs, rhs]);
+        }
         lhs.cmp_not_equal(&rhs).into()
     }
     /// lhs > rhs
     #[inline]
     pub(crate) fn cmp_greater_than(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_op("gt", vec![lhs, rhs]);
+        }
         lhs.cmp_greater_than(&rhs).into()
     }
     /// lhs >= rhs
     #[inline]
     pub(crate) fn cmp_greater_than_or_equal(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_op("ge", vec![lhs, rhs]);
+        }
         lhs.cmp_greater_than_or_equal(&rhs).into()
     }
     /// lhs < rhs
     #[inline]
     pub(crate) fn cmp_less_than(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_op("lt", vec![lhs, rhs]);
+        }
         lhs.cmp_less_than(&rhs).into()
     }
     /// lhs <= rhs
     #[inline]
     pub(crate) fn cmp_less_than_or_equal(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_op("le", vec![lhs, rhs]);
+        }
         lhs.cmp_less_than_or_equal(&rhs).into()
     }
     /// lhs as rhs
@@ -125,21 +163,30 @@ impl<'ctx> Evaluator<'ctx> {
     /// lhs is rhs
     #[inline]
     pub(crate) fn is(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("is", &lhs, &rhs);
         (lhs == rhs).into()
     }
     /// lhs is not rhs
     #[inline]
     pub(crate) fn is_not(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        no_deferred("is not", &lhs, &rhs);
         (lhs != rhs).into()
     }
     /// lhs in rhs
     #[inline]
     pub(crate) fn r#in(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            return ValueRef::deferred_op("contains", vec![rhs, lhs]);
+        }
         lhs.r#in(&rhs).into()
     }
     /// lhs not in rhs
     #[inline]
     pub(crate) fn not_in(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+        if lhs.is_deferred() || rhs.is_deferred() {
+            let contains = ValueRef::deferred_op("contains", vec![rhs, lhs]);
+            return ValueRef::deferred_op("not", vec![contains]);
+        }
         lhs.not_in(&rhs).into()
     }
 }
@@ -148,6 +195,14 @@ impl<'ctx> Evaluator<'ctx> {
     /// Value is truth function, return i1 value.
     #[inline]
     pub(crate) fn value_is_truthy(&self, value: &ValueRef) -> bool {
+        if value.is_deferred() {
+            // Branching needs the value: take it from what is known already.
+            let known = self.runtime_ctx.borrow_mut().deferred_resolve(value);
+            return match known {
+                Some(v) => v.is_truthy(),
+                None => value.is_truthy(),
+            };
+        }
         value.is_truthy()
     }
     /// Value deep copy
@@ -348,6 +403,18 @@ impl<'ctx> Evaluator<'ctx> {
             );
         } else {
             panic!("invalid dict insert value: {}", p.type_str())
+        }
+    }
+}
+
+/// Operators that have no deferred form.
+fn no_deferred(op: &str, lhs: &ValueRef, rhs: &ValueRef) {
+    for v in [lhs, rhs] {
+        if v.is_deferred() {
+            panic!(
+                "{} is computed at runtime and isn't known yet, so '{op}' can't use it. Computed values work in string templates and comparisons",
+                v.deferred_repr()
+            );
         }
     }
 }

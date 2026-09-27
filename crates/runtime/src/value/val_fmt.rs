@@ -1080,6 +1080,7 @@ impl fmt::Display for ValueRef {
                 write!(f, "{{{}}}", values.join(", "))
             }
             Value::func_value(_) => write!(f, "function"),
+            Value::deferred_value(_) => write!(f, "<computed {}>", self.deferred_repr()),
         }
     }
 }

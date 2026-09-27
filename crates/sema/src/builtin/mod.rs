@@ -129,6 +129,61 @@ end:   string appended after the last value, default a newline."#,
         false,
         None,
     )
+    isknown => Type::function(
+        None,
+        Arc::new(Type::BOOL),
+        &[
+            Parameter {
+                name: "value".to_string(),
+                ty: Type::any_ref(),
+                has_default: false,
+                default_value: None,
+                range: dummy_range(),
+            },
+        ],
+        "Return `True` if `value` isn't computed at runtime, or its value is known already.",
+        false,
+        None,
+    )
+    knownvalue => Type::function(
+        None,
+        Type::any_ref(),
+        &[
+            Parameter {
+                name: "value".to_string(),
+                ty: Type::any_ref(),
+                has_default: false,
+                default_value: None,
+                range: dummy_range(),
+            },
+        ],
+        "Return the known value of a value computed at runtime, or `value` itself if it isn't computed. Fails if it isn't known yet.",
+        false,
+        None,
+    )
+    deferredwrap => Type::function(
+        None,
+        Type::any_ref(),
+        &[
+            Parameter {
+                name: "marker".to_string(),
+                ty: Type::str_ref(),
+                has_default: false,
+                default_value: None,
+                range: dummy_range(),
+            },
+            Parameter {
+                name: "value".to_string(),
+                ty: Type::any_ref(),
+                has_default: false,
+                default_value: None,
+                range: dummy_range(),
+            },
+        ],
+        "Return `value` as a deferred value: it passes type checks as its own type, and is written to the output as `{marker: value}`.",
+        false,
+        None,
+    )
     isnullish => Type::function(
         None,
         Arc::new(Type::BOOL),

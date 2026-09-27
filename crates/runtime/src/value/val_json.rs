@@ -468,6 +468,13 @@ impl ValueRef {
                 None => JsonValue::Null,
             },
             crate::Value::str_value(v) => JsonValue::String(v.clone()),
+            // Planning replaces these with markers first; this is for
+            // encoders like `json.encode` that run during evaluation.
+            crate::Value::deferred_value(_) => {
+                let mut m = IndexMap::with_hasher(DefaultHashBuilder::default());
+                m.insert("_deferred".to_string(), JsonValue::String(self.deferred_repr()));
+                JsonValue::Object(m)
+            }
 
             crate::Value::list_value(v) => {
                 let mut val_array = Vec::new();
