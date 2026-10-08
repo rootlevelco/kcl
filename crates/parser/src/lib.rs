@@ -270,6 +270,11 @@ pub struct LoadProgramOptions {
     /// This is important for LSP and other tools that need to maintain
     /// the original file paths as provided by the user/editor.
     pub preserve_symlink_paths: bool,
+    /// KCL source added to every package the program's own files import,
+    /// as a file of its own in each, but not to external packages. Each
+    /// package gets its own virtual file, so nothing is shared between
+    /// packages and nothing is written to disk.
+    pub module_prelude: Option<String>,
 }
 
 impl Default for LoadProgramOptions {
@@ -283,6 +288,7 @@ impl Default for LoadProgramOptions {
             load_packages: true,
             load_plugins: false,
             preserve_symlink_paths: false,
+            module_prelude: None,
         }
     }
 }
@@ -358,6 +364,8 @@ pub struct ParseLoadCache {
     pkg_kfile_list: HashMap<(String, String), Vec<String>>,
     /// resolved package info keyed by `(pkg_name, pkg_root, pkg_path)`.
     resolved_packages: HashMap<(String, String, String), PkgInfo>,
+    /// Sources of files that exist only in memory: module preludes.
+    virtual_sources: HashMap<PathBuf, String>,
 }
 
 struct Loader {
@@ -535,7 +543,17 @@ fn find_packages(
     }
 
     // 1. Look for in the current package's directory.
-    let is_internal = is_internal_pkg(pkg_name, pkg_root, pkg_path, load_cache)?;
+    let mut is_internal = is_internal_pkg(pkg_name, pkg_root, pkg_path, load_cache)?;
+    // The program's own packages get the module prelude.
+    if let (Some(prelude), Some(info)) = (&opts.module_prelude, &mut is_internal)
+        && pkg_name == kcl_ast::MAIN_PKG
+        && !info.k_files.is_empty()
+    {
+        let path = std::path::Path::new(pkg_root)
+            .join(format!(".kcl-prelude.{}{KCL_FILE_SUFFIX}", info.pkg_path));
+        load_cache.virtual_sources.insert(path.clone(), prelude.clone());
+        info.k_files.push(path.to_string_lossy().into_owned());
+    }
     // 2. Look for in the vendor path.
     let is_external = is_external_pkg(pkg_path, opts, load_cache)?;
 
@@ -897,7 +915,8 @@ pub fn parse_file(
             Ok(cache) => cache.source_code.get(file.get_path()),
             Err(_) => None,
         }
-        .cloned(),
+        .cloned()
+        .or_else(|| load_cache.virtual_sources.get(file.get_path()).cloned()),
     };
     let m = parse_file_with_session(sess.clone(), file.get_path().to_str().unwrap(), src)?;
     let deps = get_deps(&file, &m, pkgs, pkgmap, load_cache, opts, sess)?;

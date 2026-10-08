@@ -105,6 +105,11 @@ pub struct ExecProgramArgs {
     /// `<kind>/<name>.<attr>[.<key>...]`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub deferred_known: String,
+    /// KCL source added to every package of the program itself, the main
+    /// package's imports included, but not to external packages: e.g.
+    /// imports and type aliases that every module should see.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_prelude: Option<String>,
 }
 
 #[inline]
@@ -212,6 +217,7 @@ impl ExecProgramArgs {
             package_maps: self.get_package_maps_from_external_pkg(),
             k_code_list: self.k_code_list.clone(),
             load_plugins: self.plugin_agent > 0,
+            module_prelude: self.module_prelude.clone(),
             ..Default::default()
         }
     }

@@ -447,3 +447,23 @@ fn test_kcl_issue_1799() {
         )
     );
 }
+
+#[test]
+fn test_module_prelude_reaches_the_programs_own_packages() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+    // `greeting` comes from the prelude, not from sub/a.k itself.
+    std::fs::write(dir.path().join("sub/a.k"), "y = greeting + \"!\"\n").unwrap();
+    std::fs::write(dir.path().join("main.k"), "import sub\n\nx = sub.y\n").unwrap();
+    let args = ExecProgramArgs {
+        work_dir: Some(dir.path().to_string_lossy().into_owned()),
+        k_filename_list: vec![dir.path().join("main.k").to_string_lossy().into_owned()],
+        module_prelude: Some("greeting = \"hi\"\n".to_owned()),
+        ..Default::default()
+    };
+    let result = exec_program(Arc::new(ParseSession::default()), &args).unwrap();
+    assert!(result.err_message.is_empty(), "{}", result.err_message);
+    assert!(result.json_result.contains("\"x\": \"hi!\""), "{}", result.json_result);
+    // Nothing written next to the project's files.
+    assert!(!dir.path().join(".kcl-prelude.sub.k").exists());
+}

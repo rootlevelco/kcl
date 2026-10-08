@@ -1173,7 +1173,9 @@ impl<'ctx> Resolver<'_> {
 /// arguments or leave out ones with defaults; the lambda's names and
 /// defaults fill them in.
 fn with_lambda_params(ty: TypeRef, value: Option<&ast::Node<ast::Expr>>) -> TypeRef {
-    let (TypeKind::Function(func), Some(ast::Expr::Lambda(lambda))) = (&ty.kind, value.map(|v| &v.node)) else {
+    let (TypeKind::Function(func), Some(ast::Expr::Lambda(lambda))) =
+        (&ty.kind, value.map(|v| &v.node))
+    else {
         return ty;
     };
     let Some(args) = &lambda.args else { return ty };
