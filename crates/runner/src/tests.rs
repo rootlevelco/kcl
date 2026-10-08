@@ -463,7 +463,27 @@ fn test_module_prelude_reaches_the_programs_own_packages() {
     };
     let result = exec_program(Arc::new(ParseSession::default()), &args).unwrap();
     assert!(result.err_message.is_empty(), "{}", result.err_message);
-    assert!(result.json_result.contains("\"x\": \"hi!\""), "{}", result.json_result);
+    assert!(
+        result.json_result.contains("\"x\": \"hi!\""),
+        "{}",
+        result.json_result
+    );
     // Nothing written next to the project's files.
     assert!(!dir.path().join(".kcl-prelude.sub.k").exists());
+}
+
+#[test]
+fn test_type_aliases_leave_config_keys_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = "schema Thing:\n    a: int = 1\n\ntype Action = Thing\n\npolicy = {Action = \"sts:AssumeRole\", Effect = \"Allow\"}\nt: Action = Action {}\n";
+    std::fs::write(dir.path().join("main.k"), src).unwrap();
+    let args = ExecProgramArgs {
+        work_dir: Some(dir.path().to_string_lossy().into_owned()),
+        k_filename_list: vec![dir.path().join("main.k").to_string_lossy().into_owned()],
+        ..Default::default()
+    };
+    let result = exec_program(Arc::new(ParseSession::default()), &args).unwrap();
+    assert!(result.err_message.is_empty(), "{}", result.err_message);
+    assert!(result.json_result.contains("\"Action\": \"sts:AssumeRole\""), "{}", result.json_result);
+    assert!(result.json_result.contains("\"t\": {"), "{}", result.json_result);
 }

@@ -65,6 +65,19 @@ impl<'ctx> MutSelfMutWalker<'ctx> for TypeAliasTransformer {
         self.walk_schema_expr(&mut unification_stmt.value.node);
     }
     fn walk_import_stmt(&mut self, _: &'ctx mut ast::ImportStmt) {}
+    fn walk_config_expr(&mut self, config_expr: &'ctx mut ast::ConfigExpr) {
+        for config_entry in config_expr.items.iter_mut() {
+            // A key written as a name names an attribute, never a type: in
+            // `{Action = "sts:AssumeRole"}` it stays `Action` even with a
+            // type alias of that name in scope. Computed keys are walked.
+            if let Some(key) = config_entry.node.key.as_deref_mut()
+                && !matches!(key.node, ast::Expr::Identifier(_))
+            {
+                self.walk_expr(&mut key.node);
+            }
+            self.walk_expr(&mut config_entry.node.value.node);
+        }
+    }
     fn walk_lambda_expr(&mut self, lambda_expr: &'ctx mut ast::LambdaExpr) {
         walk_if_mut!(self, walk_arguments, lambda_expr.args);
         walk_list_mut!(self, walk_stmt, lambda_expr.body);
