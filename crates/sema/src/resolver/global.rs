@@ -6,7 +6,7 @@ use crate::info::is_private_field;
 use crate::resolver::Resolver;
 use crate::ty::{
     DecoratorTarget, FunctionType, Parameter, RESERVED_TYPE_IDENTIFIERS, SchemaAttr,
-    SchemaIndexSignature, SchemaType, Type, TypeKind, full_ty_str, is_upper_bound,
+    SchemaIndexSignature, SchemaType, Type, TypeKind, TypeRef, full_ty_str, is_upper_bound,
 };
 use kcl_ast::ast;
 use kcl_ast_pretty::{ASTNode, print_ast_node, print_schema_expr};
@@ -764,6 +764,7 @@ impl<'ctx> Resolver<'_> {
                     let name = schema_attr.name.node.clone();
                     let ty = self
                         .parse_ty_with_scope(Some(&schema_attr.ty), schema_attr.ty.get_span_pos());
+                    let ty = with_lambda_params(ty, schema_attr.value.as_deref());
                     let is_optional = schema_attr.is_optional;
                     let default = schema_attr.value.as_ref().map(|v| {
                         if self.options.resolve_val {
@@ -1164,4 +1165,38 @@ impl<'ctx> Resolver<'_> {
             body_has_stmts: false,
         }
     }
+}
+
+/// A function-typed attribute whose value is a lambda, like a method:
+/// `apply: ([str]) -> Action = lambda only: [str] = [] -> Action {...}`.
+/// A function type names no parameters, so callers couldn't pass keyword
+/// arguments or leave out ones with defaults; the lambda's names and
+/// defaults fill them in.
+fn with_lambda_params(ty: TypeRef, value: Option<&ast::Node<ast::Expr>>) -> TypeRef {
+    let (TypeKind::Function(func), Some(ast::Expr::Lambda(lambda))) = (&ty.kind, value.map(|v| &v.node)) else {
+        return ty;
+    };
+    let Some(args) = &lambda.args else { return ty };
+    if args.node.args.len() != func.params.len() {
+        return ty;
+    }
+    let params: Vec<Parameter> = func
+        .params
+        .iter()
+        .zip(args.node.args.iter().zip(&args.node.defaults))
+        .map(|(p, (name, default))| Parameter {
+            name: name.node.get_name(),
+            has_default: default.is_some(),
+            default_value: default.as_ref().map(|d| print_ast_node(ASTNode::Expr(d))),
+            ..p.clone()
+        })
+        .collect();
+    Arc::new(Type::function(
+        func.self_ty.clone(),
+        func.return_ty.clone(),
+        &params,
+        &func.doc,
+        func.is_variadic,
+        func.kw_only_index,
+    ))
 }
