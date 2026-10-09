@@ -85,3 +85,8 @@ _a.out_*.*
 # KCL mod lock file
 !.mod.lock
 .vercel
+
+# Local credentials
+.env
+.env.*
+!.env.example
