@@ -185,7 +185,7 @@ impl<'a> Lexer<'a> {
             let token = kcl_lexer::first_token(text);
 
             // Detect and handle indent cases before lexing on-going token
-            let indent = self.lex_indent_context(token.kind);
+            let indent = self.lex_indent_context(token.kind, tok_stream_builder);
 
             // Because of the 'look-behind', the 'start' of the current token becomes a two-way cursor,
             // which can not only move forward, but also move backward when 'look-behind'.
@@ -708,7 +708,9 @@ impl<'a> Lexer<'a> {
         }
 
         while self.indent_cxt.indents.len() > 1 {
-            self.indent_cxt.indents.pop();
+            if self.indent_cxt.indents.pop().is_some_and(|i| i.continued) {
+                continue;
+            }
             buf.push(Token::new(
                 token::Dedent(VALID_SPACES_LENGTH),
                 self.span(self.pos, self.pos),
@@ -731,6 +733,22 @@ impl TokenStreamBuilder {
 
     fn into_token_stream(self) -> TokenStream {
         TokenStream::new(self.buf)
+    }
+
+    /// Removes the line breaks ending what's been lexed. Comments among them
+    /// stay.
+    fn drop_line_end(&mut self) {
+        let mut at = self.buf.len();
+        while at > 0 {
+            match self.buf[at - 1].kind {
+                token::Newline => {
+                    self.buf.remove(at - 1);
+                }
+                token::DocComment(_) => {}
+                _ => break,
+            }
+            at -= 1;
+        }
     }
 
     /// Pop the token at the top of the stack, and return None if the stack is empty.

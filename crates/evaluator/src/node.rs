@@ -100,6 +100,10 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
         let mut result = self.ok_result();
         for expr in &expr_stmt.exprs {
             let scalar = self.walk_expr(expr)?;
+            if crate::calculation::is_pipeline(&scalar) {
+                result = Ok(scalar);
+                continue;
+            }
             // Only non-call expressions are allowed to emit values because of the function void return type.
             if !matches!(expr.node, ast::Expr::Call(_)) {
                 self.add_scalar(scalar.clone(), matches!(expr.node, ast::Expr::Schema(_)));
@@ -731,7 +735,10 @@ impl<'ctx> TypedResultWalker<'ctx> for Evaluator<'ctx> {
                 ast::BinOp::LShift => self.bit_lshift(left_value, right_value),
                 ast::BinOp::RShift => self.bit_rshift(left_value, right_value),
                 ast::BinOp::BitAnd => self.bit_and(left_value, right_value),
-                ast::BinOp::BitOr => self.bit_or(left_value, right_value),
+                ast::BinOp::BitOr => match self.pipe(&left_value, &right_value) {
+                    Some(piped) => piped,
+                    None => self.bit_or(left_value, right_value),
+                },
                 ast::BinOp::BitXor => self.bit_xor(left_value, right_value),
                 ast::BinOp::And => self.logic_and(left_value, right_value),
                 ast::BinOp::Or => self.logic_or(left_value, right_value),
@@ -2025,9 +2032,19 @@ impl<'ctx> Evaluator<'ctx> {
 
     /// Names the instances a top-level variable of the main package holds.
     fn name_instances(&self, assign_stmt: &'ctx ast::AssignStmt, value: &ValueRef) {
-        if self.scope_level() != GLOBAL_LEVEL
-            || self.current_pkgpath() != kcl_runtime::MAIN_PKG_PATH
-        {
+        if self.scope_level() != GLOBAL_LEVEL {
+            return;
+        }
+        let pkgpath = self.current_pkgpath();
+        if pkgpath != kcl_runtime::MAIN_PKG_PATH {
+            for target in assign_stmt
+                .targets
+                .iter()
+                .filter(|t| t.node.paths.is_empty())
+            {
+                let name = format!("{pkgpath}-{}", target.node.name.node);
+                self.module_vars.borrow_mut().push((value.clone(), name));
+            }
             return;
         }
         for target in &assign_stmt.targets {

@@ -110,6 +110,12 @@ pub struct ExecProgramArgs {
     /// imports and type aliases that every module should see.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub module_prelude: Option<String>,
+    /// Run the body of every package of the program itself, also one that
+    /// nothing refers to, since it may hold pipelines. External packages
+    /// still run only when they're referred to. Default: only those
+    /// referred to.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub run_own_packages: bool,
 }
 
 #[inline]

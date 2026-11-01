@@ -167,7 +167,15 @@ pub fn execute(
     // diagnostics so we can also drop resolve errors that come from
     // packages the entry point never touches — the user's program
     // shouldn't see them.
-    let referenced_pkgs = collect_referenced_pkgs(&scope);
+    let mut referenced_pkgs = collect_referenced_pkgs(&scope);
+    if args.run_own_packages {
+        for pkg in program.pkgs.keys() {
+            let root = pkg.split('.').next().unwrap_or(pkg);
+            if pkg != MAIN_PKG && !args.external_pkgs.iter().any(|e| e.pkg_name == root) {
+                referenced_pkgs.insert(format!("{PKG_PATH_PREFIX}{pkg}"));
+            }
+        }
+    }
     suppress_unreferenced_pkg_diags(&mut scope, &program, &referenced_pkgs);
     // Emit parse and resolve errors if exists.
     emit_compile_diag_to_string(sess, &scope, false)?;

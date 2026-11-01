@@ -50,10 +50,24 @@ use kcl_runtime::{Context, ValueRef};
 
 /// SCALAR_KEY denotes the temp scalar key for the global variable json plan process.
 const SCALAR_KEY: &str = "";
+/// Where the output holds pipelines nothing else in it carries. See
+/// `Evaluator::pipelines`.
+const PIPES_KEY: &str = "_pipes";
 /// Global level
 const GLOBAL_LEVEL: usize = 1;
 /// Inner level
 const INNER_LEVEL: usize = 2;
+
+/// A schema instance `|` was used on or made.
+pub struct Piped {
+    pub value: ValueRef,
+    /// The index in `pipes` of the instance its pipeline started from.
+    pub root: usize,
+    /// `|` made it, so it's a pipeline rather than where one starts.
+    pub made: bool,
+    /// `|` was used on it, so it's a step of a longer pipeline if it was made.
+    pub used: bool,
+}
 
 /// The evaluator function result
 pub type EvalResult = Result<ValueRef>;
@@ -77,6 +91,14 @@ pub struct Evaluator<'ctx> {
     pub imported: RefCell<HashSet<String>>,
     /// The lambda stack index denotes the scope level of the lambda function.
     pub lambda_stack: RefCell<Vec<FunctionEvalContextRef>>,
+    /// The scope level each lambda on the stack was called from. Scopes
+    /// deeper than it are the call's own, wherever the lambda was defined.
+    pub lambda_call_levels: RefCell<Vec<usize>>,
+    /// Every schema instance `|` was used on or made, in any package.
+    pub pipes: RefCell<Vec<Piped>>,
+    /// Global variables of imported packages, with the names they give the
+    /// instances in them that the main package doesn't name.
+    pub module_vars: RefCell<Vec<(ValueRef, String)>>,
     /// To judge is in the schema statement.
     pub schema_stack: RefCell<Vec<EvalContext>>,
     /// Order lambda and schema ctx vec
@@ -176,6 +198,9 @@ impl<'ctx> Evaluator<'ctx> {
             schemas: RefCell::new(Default::default()),
             target_vars: RefCell::new(vec![]),
             lambda_stack: RefCell::new(vec![]),
+            lambda_call_levels: RefCell::new(vec![]),
+            pipes: RefCell::new(vec![]),
+            module_vars: RefCell::new(vec![]),
             imported: RefCell::new(Default::default()),
             schema_stack: RefCell::new(Default::default()),
             schema_expr_stack: RefCell::new(Default::default()),
@@ -283,8 +308,9 @@ impl<'ctx> Evaluator<'ctx> {
         let globals = &scope.variables;
         // Construct a plan object.
         let mut global_dict = self.dict_value();
+        let pipelines = self.pipelines();
         // Plan empty dict result.
-        if scalars.is_empty() && globals.is_empty() {
+        if scalars.is_empty() && globals.is_empty() && pipelines.is_empty() {
             return self.plan_value(&global_dict);
         }
         // Deal scalars
@@ -301,6 +327,16 @@ impl<'ctx> Evaluator<'ctx> {
             }
             let mut value_dict = self.dict_value();
             self.dict_insert_merge_value(&mut value_dict, name.as_str(), value);
+            self.dict_insert_merge_value(&mut global_dict, SCALAR_KEY, &value_dict);
+        }
+        // Deal pipelines, which any package may have written
+        if !pipelines.is_empty() {
+            let mut list = self.list_value();
+            for pipeline in &pipelines {
+                self.list_append(&mut list, pipeline);
+            }
+            let mut value_dict = self.dict_value();
+            self.dict_insert_merge_value(&mut value_dict, PIPES_KEY, &list);
             self.dict_insert_merge_value(&mut global_dict, SCALAR_KEY, &value_dict);
         }
         // Plan result to JSON and YAML string.

@@ -451,7 +451,10 @@ impl<'ctx> Evaluator<'ctx> {
                         // Local variables (including function parameters) should always use the current value,
                         // not the closure value, to avoid using stale values from previous invocations
                         let is_local_var = self.is_local_var(name);
-                        if (index >= last_lambda_scope && !ignore) || is_local_var {
+                        if (index >= last_lambda_scope && !ignore)
+                            || is_local_var
+                            || self.in_lambda_call(index)
+                        {
                             var.clone()
                         } else {
                             lambda_ctx.closure.get(name).unwrap_or(var).clone()
@@ -536,7 +539,7 @@ impl<'ctx> Evaluator<'ctx> {
                     } else {
                         false
                     };
-                    if index >= last_lambda_scope && !ignore {
+                    if (index >= last_lambda_scope && !ignore) || self.in_lambda_call(index) {
                         var.clone()
                     } else {
                         lambda_ctx.closure.get(name).unwrap_or(var).clone()

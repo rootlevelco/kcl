@@ -1,13 +1,125 @@
 /* Calculation methods */
 
+use std::collections::{HashMap, HashSet};
+
 use kcl_ast::ast;
 use kcl_runtime::{ConfigEntryOperationKind, DictValue, UnionOptions, Value, ValueRef};
 
-use crate::Evaluator;
 use crate::ty::{resolve_schema, type_pack_and_check};
 use crate::union::union_entry;
+use crate::{Evaluator, Piped};
+
+/// A schema with this lambda attribute decides what `a | b` means when it's
+/// on the left: the lambda gets `b`, and what it returns is the result.
+pub(crate) const PIPE_ATTR: &str = "_pipe";
+
+/// Whether two values are one schema instance, whatever was copied.
+fn same_instance(a: &ValueRef, b: &ValueRef) -> bool {
+    match (instance_id(a), instance_id(b)) {
+        (0, _) | (_, 0) => a == b,
+        (a, b) => a == b,
+    }
+}
+
+fn instance_id(v: &ValueRef) -> u64 {
+    match &*v.rc.borrow() {
+        Value::schema_value(s) => s.config.oid.0,
+        _ => 0,
+    }
+}
+
+/// Whether a value is a pipeline or a list of them. A statement that only
+/// makes one has nothing to add to the output: pipelines get there through
+/// `Evaluator::pipelines`.
+pub(crate) fn is_pipeline(v: &ValueRef) -> bool {
+    match &*v.rc.borrow() {
+        Value::list_value(l) => !l.values.is_empty() && l.values.iter().all(is_pipeline),
+        Value::schema_value(_) => v.dict_get_value(PIPE_ATTR).is_some(),
+        _ => false,
+    }
+}
 
 impl<'ctx> Evaluator<'ctx> {
+    /// `lhs | rhs` where lhs is a schema instance with a `_pipe` lambda:
+    /// calls it with rhs and keeps both in `pipes`. None for anything else,
+    /// which `bit_or` handles. Only the binary operator comes here, so `|=`
+    /// and unification go on merging.
+    pub(crate) fn pipe(&self, lhs: &ValueRef, rhs: &ValueRef) -> Option<ValueRef> {
+        if !lhs.is_schema() {
+            return None;
+        }
+        let proxy = lhs.dict_get_value(PIPE_ATTR)?.try_get_proxy()?;
+        let mut args = self.list_value();
+        self.list_append(&mut args, rhs);
+        let kwargs = self.dict_value();
+        let vars = self.clean_and_cloned_local_vars();
+        let piped = self.invoke_proxy_function(proxy, &args, &kwargs);
+        self.set_local_vars(vars);
+        let mut pipes = self.pipes.borrow_mut();
+        let left = match pipes.iter().position(|p| same_instance(&p.value, lhs)) {
+            Some(i) => i,
+            None => {
+                let root = pipes.len();
+                pipes.push(Piped {
+                    value: lhs.clone(),
+                    root,
+                    made: false,
+                    used: false,
+                });
+                root
+            }
+        };
+        pipes[left].used = true;
+        let root = pipes[left].root;
+        pipes.push(Piped {
+            value: piped.clone(),
+            root,
+            made: true,
+            used: false,
+        });
+        Some(piped)
+    }
+
+    /// The program's pipelines that the output doesn't have yet, wherever
+    /// they were written, named. A step on the way to a longer pipeline
+    /// isn't one. What the main package named is in the output already.
+    /// Others take the name of the package variable holding them, or
+    /// `<first>-<n>` after the instance they started from.
+    pub(crate) fn pipelines(&self) -> Vec<ValueRef> {
+        let pipes = self.pipes.borrow();
+        if pipes.is_empty() {
+            return Vec::new();
+        }
+        let mut ctx = self.runtime_ctx.borrow_mut();
+        let in_main: HashSet<u64> = ctx.deferred.names.keys().copied().collect();
+        for (value, name) in self.module_vars.borrow().iter() {
+            ctx.deferred_name_instances(value, name);
+        }
+        let mut out = Vec::new();
+        let mut branches: HashMap<usize, usize> = HashMap::new();
+        for p in pipes.iter().filter(|p| !(p.made && p.used)) {
+            let id = instance_id(&p.value);
+            if in_main.contains(&id) {
+                continue;
+            }
+            let name = match ctx.deferred.names.get(&id) {
+                Some((_, name)) => name.clone(),
+                None => {
+                    let n = branches.entry(p.root).or_default();
+                    *n += 1;
+                    let first = instance_id(&pipes[p.root].value);
+                    match ctx.deferred.names.get(&first) {
+                        Some((_, first)) => format!("{first}-{n}"),
+                        None => format!("pipe-{n}"),
+                    }
+                }
+            };
+            ctx.deferred_name_instances(&p.value, &name);
+            out.push(p.value.clone());
+        }
+        out
+    }
+
     /// lhs + rhs
     #[inline]
     pub(crate) fn add(&self, lhs: ValueRef, rhs: ValueRef) -> ValueRef {

@@ -182,7 +182,13 @@ impl<'ctx> Resolver<'ctx> {
                         )),
                     )
                 } else if t1.is_schema() && (t2.is_schema() || t2.is_dict()) {
-                    (true, t1)
+                    // A schema's `_pipe` lambda decides what `|` makes.
+                    let piped = t1
+                        .into_schema_type()
+                        .get_type_of_attr("_pipe")
+                        .filter(|t| t.is_func())
+                        .map(|t| t.into_func_type().return_ty);
+                    (true, piped.unwrap_or(t1))
                 } else {
                     (false, self.any_ty())
                 }

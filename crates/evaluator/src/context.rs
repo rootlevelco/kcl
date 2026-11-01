@@ -69,6 +69,7 @@ impl<'ctx> Evaluator<'ctx> {
             self.push_scope_cover(lambda_ctx.level, level);
         }
         self.lambda_stack.borrow_mut().push(lambda_ctx.clone());
+        self.lambda_call_levels.borrow_mut().push(level);
         self.ctx_stack
             .borrow_mut()
             .push(LambdaOrSchemaEvalContext::Lambda(lambda_ctx));
@@ -84,6 +85,7 @@ impl<'ctx> Evaluator<'ctx> {
         level: usize,
     ) {
         self.lambda_stack.borrow_mut().pop();
+        self.lambda_call_levels.borrow_mut().pop();
         self.ctx_stack.borrow_mut().pop();
         // Inner scope function calling.
         if frame_pkgpath == current_pkgpath && level >= lambda_ctx.level {
@@ -98,6 +100,15 @@ impl<'ctx> Evaluator<'ctx> {
     #[inline]
     pub fn is_in_lambda(&self) -> bool {
         !self.lambda_stack.borrow().is_empty()
+    }
+
+    /// Whether the scope at `index` belongs to the running lambda's call.
+    #[inline]
+    pub fn in_lambda_call(&self, index: usize) -> bool {
+        self.lambda_call_levels
+            .borrow()
+            .last()
+            .is_some_and(|level| index > *level)
     }
 
     #[inline]
